@@ -1,4 +1,4 @@
-# llama-launcher
+# llama.cpp-utils
 
 A lightweight wrapper and automation tool for `llama.cpp` with Vulkan support on Ubuntu AMD64.
 
@@ -6,7 +6,7 @@ A lightweight wrapper and automation tool for `llama.cpp` with Vulkan support on
 
 - `llama-installer`: Automates the installation and update of `llama.cpp` using pre-compiled Vulkan binaries.
 - `llama-launcher`: A wrapper for `llama serve` with `--webui-mcp-proxy` enabled.
-- `ping`: A CLI utility to test models via chat completion requests.
+- `llama-ping`: A CLI utility to test models via chat completion requests.
 - `llama-free`: Unloads all loaded models from the server.
 
 ## Installation
@@ -44,7 +44,7 @@ The `llama` command will be available in your terminal, pointing to the latest i
 ### Testing a Model
 
 ```bash
-./ping <model_alias> "[prompt]"
+./llama-ping <model_alias> "[prompt]"
 ```
 
 ### Unloading Models
