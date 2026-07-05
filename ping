@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# Configurações
+API_URL="http://0.0.0.0:8080/v1/chat/completions"
+
+# Validação de argumentos
+# Agora verificamos apenas se o primeiro argumento (modelo) foi passado
+if [ -z "$1" ]; then
+    echo "Uso: $0 <alias_do_modelo> [prompt]"
+    echo "Exemplo: $0 gemma-4-26B-A4B \"Explique o que é Linux\""
+    echo "Exemplo (padrão): $0 gemma-4-26B-A4B"
+    exit 1
+fi
+
+MODEL_ALIAS=$1
+# Se $2 não for fornecido, PROMPT recebe "Olá"
+PROMPT=${2:-"Olá"}
+
+# Construção do Payload de forma segura usando jq
+PAYLOAD=$(jq -n \
+    --arg model "$MODEL_ALIAS" \
+    --arg prompt "$PROMPT" \
+    '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0}')
+
+echo -ne "User: ${PROMPT}\n  AI: "
+
+# Executa a requisição e armazena a resposta
+RESPONSE=$(curl -s -X POST "$API_URL" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD")
+
+# Verifica se a resposta é vazia
+if [ -z "$RESPONSE" ]; then
+    echo -e "\nErro: Resposta vazia do servidor."
+    exit 1
+fi
+
+# Verifica se houve erro no JSON (ex: modelo não encontrado)
+ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+if [ -n "$ERROR_MSG" ]; then
+    echo -e "\nErro do Servidor: $ERROR_MSG"
+    exit 1
+fi
+
+# Extração de dados usando jq
+CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+PROMPT_N=$(echo "$RESPONSE" | jq -r '.timings.prompt_n')
+PROMPT_TPS=$(echo "$RESPONSE" | jq -r '.timings.prompt_per_second')
+PRED_N=$(echo "$RESPONSE" | jq -r '.timings.predicted_n')
+PRED_TPS=$(echo "$RESPONSE" | jq -r '.timings.predicted_per_second')
+
+# Output formatado
+echo "$CONTENT"
+echo
+echo "Prompt: $PROMPT_N tokens @ $PROMPT_TPS tokens/s"
+echo "Gerado: $PRED_N tokens @ $PRED_TPS tokens/s"
