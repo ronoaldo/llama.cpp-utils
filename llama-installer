@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# llama-installer: Automates the installation/update of llama.cpp (Vulkan x64)
+# Target: Ubuntu AMD64
+
+set -e
+
+# --- Configuration ---
+REPO="ggml-org/llama.cpp"
+INSTALL_BASE="$HOME/.local/share/llama.cpp"
+BIN_DIR="$HOME/.local/bin"
+LINK_NAME="llama"
+TEMP_DIR=$(mktemp -d -t llama_install_XXXXXX)
+
+# --- Logging Functions ---
+log() { echo -e "\e[32m[INFO]\e[0m $1"; }
+warn() { echo -e "\e[33m[WARN]\e[0m $1"; }
+error() { echo -e "\e[31m[ERROR]\e[0m $1"; exit 1; }
+
+# Automatic cleanup on exit (success or error)
+cleanup() {
+    rm -rf "$TEMP_DIR"
+}
+trap cleanup EXIT
+
+# --- Dependency Check ---
+check_deps() {
+    log "Checking dependencies..."
+    for cmd in curl jq tar; do
+        if ! command -v "$cmd" &> /dev/null; then
+            error "$cmd is not installed. Please install it first."
+        fi
+    done
+}
+
+# --- Main Logic ---
+main() {
+    check_deps
+
+    # 1. Get the latest release tag via GitHub API
+    log "Fetching the latest release tag from GitHub..."
+    TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r .tag_name)
+    
+    if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+        error "Failed to fetch the latest tag from GitHub."
+    fi
+    log "Latest version identified: $TAG"
+
+    TARGET_DIR="$INSTALL_BASE/$TAG"
+
+    # 2. Check if the version is already installed
+    if [ -d "$TARGET_DIR" ]; then
+        log "Version $TAG is already installed in $TARGET_DIR. Skipping download."
+    else
+        log "Installing version $TAG in $TARGET_DIR..."
+        mkdir -p "$TARGET_DIR"
+
+        # 3. Download Vulkan x64 binary
+        log "Fetching the download URL for the Vulkan x64 version..."
+        URL=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | contains("vulkan-x64.tar.gz")) | .browser_download_url')
+        
+        if [[ -z "$URL" || "$URL" == "null" ]]; then
+            error "Could not find the download link for the Vulkan x64 binary."
+        fi
+
+        log "Downloading from: $URL"
+        if ! curl -L "$URL" -o "$TEMP_DIR/llama.tar.gz"; then
+            error "The download failed."
+        fi
+
+        # 4. Extraction
+        log "Extracting files..."
+        mkdir -p "$TEMP_DIR/extracted"
+        if ! tar -xzf "$TEMP_DIR/llama.tar.gz" -C "$TEMP_DIR/extracted"; then
+            error "Failed to extract the downloaded file."
+        fi
+        
+        # Find the directory containing the llama-cli binary
+        BIN_PATH=$(find "$TEMP_DIR/extracted" -name "llama-cli" | head -n 1)
+        if [ -z "$BIN_PATH" ]; then
+            error "Could not find the llama-cli binary within the downloaded package."
+        fi
+        BIN_DIR_IN_TAR=$(dirname "$BIN_PATH")
+        
+        # Copy the contents of this directory to TARGET_DIR
+        cp -r "$BIN_DIR_IN_TAR/." "$TARGET_DIR/"
+    fi
+
+    # 5. Symbolic Link Configuration
+    log "Configuring symbolic link..."
+    mkdir -p "$BIN_DIR"
+    
+    # Identify the actual binary (using the absolute path of TARGET_DIR)
+    ACTUAL_BIN=$(find "$TARGET_DIR" -maxdepth 1 -name "llama" | head -n 1)
+    
+    if [ -z "$ACTUAL_BIN" ]; then
+        error "Could not find the llama-cli binary in $TARGET_DIR"
+    fi
+
+    ln -sf "$ACTUAL_BIN" "$BIN_DIR/$LINK_NAME"
+    log "Symbolic link created: $BIN_DIR/$LINK_NAME -> $ACTUAL_BIN"
+
+    # 6. PATH Verification
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+        log "Adding $BIN_DIR to PATH in ~/.bashrc"
+        if [ -f "$HOME/.bashrc" ]; then
+            if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.bashrc"; then
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+                warn "Please run 'source ~/.bashrc' or restart your terminal to update the PATH."
+            else
+                log "$BIN_DIR is already in ~/.bashrc."
+            fi
+        else
+            warn "$HOME/.bashrc not found. The PATH was not updated permanently."
+        fi
+    else
+        log "$BIN_DIR is already in the PATH."
+    fi
+
+    # 7. Final Verification
+    log "Verifying installation..."
+    # Capture stdout and stderr to ensure we get the version even if sent to stderr
+    # Remove common prefixes (b or v) from the tag for comparison with the binary output
+    VERSION_OUTPUT=$("$BIN_DIR/$LINK_NAME" --version 2>&1)
+    CLEAN_TAG=$(echo "$TAG" | sed 's/^[bv]//')
+
+    if echo "$VERSION_OUTPUT" | grep -q "$CLEAN_TAG"; then
+        log "SUCCESS: llama-installer completed successfully!"
+    else
+        error "Verification failed. The detected version was: [$VERSION_OUTPUT]. Expected something containing: [$CLEAN_TAG] (Original tag: $TAG)."
+    fi
+}
+
+main "$@"
