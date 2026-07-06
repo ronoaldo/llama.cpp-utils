@@ -51,7 +51,7 @@ Launch the `llama.cpp` server with Vulkan acceleration and MCP proxy support:
 ./llama-launcher
 ```
 
-The server listens on `http://0.0.0.0:8080`.
+The server listens on `http://0.0.0.0:8084`.
 
 ### 3. Test a Model
 
@@ -75,6 +75,12 @@ Model aliases, Hugging Face repositories, offload layers, and VRAM-saving option
 
 Global defaults (`[*]`) set baseline VRAM-friendly values:
 - `cache-type-k = q8_0` & `cache-type-v = q8_0` (quantized KV cache for memory savings)
-- `ctx-size = 32768`
-- `ubatch-size = 32` & `batch-size = 256`
+- `ctx-size = 65536`
+- `ubatch-size = 256` & `batch-size = 1024`
+
+Each model has two presets: a default one that leaves VRAM and CPU headroom
+for the desktop and streaming software (e.g. OBS), and a `-performance` one
+that uses most of the GPU. See
+[docs/fable-5-optimizations.md](docs/fable-5-optimizations.md) for the
+measurements and tuning guide behind these values.
 

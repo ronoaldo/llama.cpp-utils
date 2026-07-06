@@ -2,7 +2,7 @@
 set -e
 
 # Default server URL
-LLAMA_SERVER_URL="http://localhost:8080"
+LLAMA_SERVER_URL="http://localhost:8084"
 
 # Fetch loaded models and send unload requests
 curl -fsS "$LLAMA_SERVER_URL/v1/models" | jq -r '.data[] | select(.status.value == "loaded") | .id' | while IFS= read -r model_id; do

@@ -7,7 +7,7 @@
 
 ## Core Workflow
 - **Install/Update**: Run [`./llama-installer`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-installer) to fetch and verify the latest pre-compiled `vulkan-x64` binaries of `llama.cpp`.
-- **Start Server**: Run [`./llama-launcher`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-launcher) to start the `llama serve` instance on port `8080`.
+- **Start Server**: Run [`./llama-launcher`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-launcher) to start the `llama serve` instance on port `8084`.
 - **Interact**: Use [`./llama-ping <model_alias> [prompt]`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-ping) to test a model.
 - **Unload Models**: Run [`./llama-free`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-free) to unload all loaded models from VRAM.
 
@@ -19,7 +19,7 @@
 - [`llama-free`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-free): CLI utility to clear active models from GPU VRAM via `/models/unload`.
 
 ## Configuration & API
-- **API Base URL**: `http://localhost:8080/v1`
+- **API Base URL**: `http://localhost:8084/v1`
 - **Model Presets**: Defined in [`models.ini`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/models.ini).
 - **Dependencies**: Requires Linux x86_64, Vulkan drivers, `llama` server, `curl`, `jq`, and `tar`.
 
