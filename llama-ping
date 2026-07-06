@@ -6,10 +6,23 @@ API_URL="http://0.0.0.0:8084/v1/chat/completions"
 # Argument validation
 # We only check if the first argument (model alias) was provided
 if [ -z "$1" ]; then
-    echo "Usage: $0 <model_alias> [prompt]"
-    echo "Example: $0 gemma-4-26B-A4B \"Explain what Linux is\""
-    echo "Example (default): $0 gemma-4-26B-A4B"
-    exit 1
+    MODELS_RESPONSE=$(curl -s http://0.0.0.0:8084/v1/models)
+    if [ -z "$MODELS_RESPONSE" ]; then
+        echo "Error: Could not fetch models from server."
+        exit 1
+    fi
+
+    echo "Available models:"
+    echo "$MODELS_RESPONSE" | jq -r '.data[] | "\(.id) \(.status.value) \(.status.args | join(" "))"' | while read -r id loaded args; do
+        status=""
+        [ "$loaded" = "loaded" ] && status=" (loaded)"
+        context="N/A"
+        if [ -n "$args" ]; then
+            context=$(echo "$args" | grep -oP '(?<=\--ctx-size )\K\d+' | head -1)
+        fi
+        echo "- $id$status (Context: ${context:-N/A})"
+    done
+    exit 0
 fi
 
 MODEL_ALIAS=$1
