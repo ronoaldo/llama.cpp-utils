@@ -2,68 +2,87 @@
 
 # Configuration
 API_URL="http://0.0.0.0:8084/v1/chat/completions"
+MODELS_URL="http://0.0.0.0:8084/v1/models"
 
-# Argument validation
-# We only check if the first argument (model alias) was provided
-if [ -z "$1" ]; then
-    MODELS_RESPONSE=$(curl -s http://0.0.0.0:8084/v1/models)
-    if [ -z "$MODELS_RESPONSE" ]; then
+fetch_models() {
+    local response
+    response=$(curl -s "$MODELS_URL")
+    if [ -z "$response" ]; then
         echo "Error: Could not fetch models from server."
         exit 1
     fi
 
     echo "Available models:"
-    echo "$MODELS_RESPONSE" | jq -r '.data[] | "\(.id) \(.status.value) \(.status.args | join(" "))"' | while read -r id loaded args; do
-        status=""
+    echo "$response" | jq -r '.data[] | "\(.id) \(.status.value) \(.status.args | join(" "))"' | while read -r id loaded args; do
+        local status=""
         [ "$loaded" = "loaded" ] && status=" (loaded)"
-        context="N/A"
+        local context="N/A"
         if [ -n "$args" ]; then
             context=$(echo "$args" | grep -oP '(?<=\--ctx-size )\K\d+' | head -1)
         fi
         echo "- $id$status (Context: ${context:-N/A})"
     done
-    exit 0
-fi
+}
 
-MODEL_ALIAS=$1
-# If $2 is not provided, PROMPT defaults to "Hello"
-PROMPT=${2:-"Hello"}
+get_payload() {
+    local model_alias=$1
+    local prompt=$2
+    jq -n \
+        --arg model "$model_alias" \
+        --arg prompt "$prompt" \
+        '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0}'
+}
 
-# Safe payload construction using jq
-PAYLOAD=$(jq -n \
-    --arg model "$MODEL_ALIAS" \
-    --arg prompt "$PROMPT" \
-    '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0}')
+call_api() {
+    local payload=$1
+    curl -s -X POST "$API_URL" \
+        -H "Content-Type: application/json" \
+        -d "$payload"
+}
 
-echo -ne "User: ${PROMPT}\n  AI: "
+handle_response() {
+    local response=$1
+    local prompt=$2
 
-# Execute request and store response
-RESPONSE=$(curl -s -X POST "$API_URL" \
-    -H "Content-Type: application/json" \
-    -d "$PAYLOAD")
+    if [ -z "$response" ]; then
+        echo -e "\nError: Empty response from server."
+        exit 1
+    fi
 
-# Check if response is empty
-if [ -z "$RESPONSE" ]; then
-    echo -e "\nError: Empty response from server."
-    exit 1
-fi
+    local error_msg=$(echo "$response" | jq -r '.error.message // empty')
+    if [ -n "$error_msg" ]; then
+        echo -e "\nServer Error: $error_msg"
+        exit 1
+    fi
 
-# Check for JSON errors (e.g., model not found)
-ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
-if [ -n "$ERROR_MSG" ]; then
-    echo -e "\nServer Error: $ERROR_MSG"
-    exit 1
-fi
+    local content=$(echo "$response" | jq -r '.choices[0].message.content')
+    local prompt_n=$(echo "$response" | jq -r '.timings.prompt_n')
+    local prompt_tps=$(echo "$response" | jq -r '.timings.prompt_per_second')
+    local pred_n=$(echo "$response" | jq -r '.timings.predicted_n')
+    local pred_tps=$(echo "$response" | jq -r '.timings.predicted_per_second')
 
-# Data extraction using jq
-CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
-PROMPT_N=$(echo "$RESPONSE" | jq -r '.timings.prompt_n')
-PROMPT_TPS=$(echo "$RESPONSE" | jq -r '.timings.prompt_per_second')
-PRED_N=$(echo "$RESPONSE" | jq -r '.timings.predicted_n')
-PRED_TPS=$(echo "$RESPONSE" | jq -r '.timings.predicted_per_second')
+    echo -ne "User: ${prompt}\n  AI: "
+    echo "$content"
+    echo
+    echo "Prompt: $prompt_n tokens @ $prompt_tps tokens/s"
+    echo "Generated: $pred_n tokens @ $pred_tps tokens/s"
+}
 
-# Formatted output
-echo "$CONTENT"
-echo
-echo "Prompt: $PROMPT_N tokens @ $PROMPT_TPS tokens/s"
-echo "Generated: $PRED_N tokens @ $PRED_TPS tokens/s"
+main() {
+    if [ -z "$1" ]; then
+        fetch_models
+        exit 0
+    fi
+
+    local model_alias=$1
+    local prompt=${2:-"Hello"}
+
+    local payload=$(get_payload "$model_alias" "$prompt")
+    
+    echo -ne "User: ${prompt}\n  AI: "
+    local response=$(call_api "$payload")
+
+    handle_response "$response" "$prompt"
+}
+
+main "$@"
