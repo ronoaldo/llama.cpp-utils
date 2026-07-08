@@ -3,7 +3,7 @@
 ## Overview & Architecture Intent
 `llama.cpp-utils` is a lightweight management and automation toolkit for `llama.cpp` on **Linux x86_64**.
 - **Inference Engine**: Uses Vulkan compute shaders for hardware acceleration across a broad range of GPUs (AMD Radeon, NVIDIA GeForce/RTX, Intel Arc).
-- **Target Specs**: Optimized for GPUs with **12 GB or more VRAM**, leveraging 8-bit KV caching (`q8_0`), single-model concurrency (`--models-max 1`), and model offloading presets.
+- **Target Specs**: Optimized for GPUs with **16 GB or more VRAM**, leveraging 8-bit KV caching (`q8_0`), single-model concurrency (`--models-max 1`), and model offloading presets.
 
 ## Core Workflow
 - **Install/Update**: Run [`./llama-installer`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-installer) to fetch and verify the latest pre-compiled `vulkan-x64` binaries of `llama.cpp`.

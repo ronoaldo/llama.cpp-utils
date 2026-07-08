@@ -2,12 +2,12 @@
 
 A lightweight wrapper, management, and automation toolkit for [`llama.cpp`](https://github.com/ggml-org/llama.cpp) designed for **Linux x86_64** systems.
 
-This project is built around the intent to leverage **Vulkan inference** for hardware-accelerated LLM execution across a broad range of GPUs (AMD Radeon, NVIDIA GeForce/RTX, Intel Arc) without relying on vendor-specific SDKs (such as CUDA or ROCm). It is specifically configured and optimized to support GPUs with **12 or more GB of VRAM**, utilizing 8-bit KV caching, single-model VRAM management, and efficient layer offloading to run modern quantized models smoothly.
+This project is built around the intent to leverage **Vulkan inference** for hardware-accelerated LLM execution across a broad range of GPUs (AMD Radeon, NVIDIA GeForce/RTX, Intel Arc) without relying on vendor-specific SDKs (such as CUDA or ROCm). It is specifically configured and optimized to support GPUs with **16 or more GB of VRAM**, utilizing 8-bit KV caching, single-model VRAM management, and efficient layer offloading to run modern quantized models smoothly.
 
 ## Features
 
 - **Broad GPU Compatibility via Vulkan**: Uses Vulkan compute shaders to provide hardware acceleration across AMD, NVIDIA, and Intel GPUs on Linux x86_64.
-- **Optimized for 12GB+ VRAM**: Pre-configured defaults (such as 8-bit KV cache quantization `q8_0`, tuned batch sizes, and single-model concurrency limits) maximize model context and layer offloading within 12GB+ GPU VRAM budgets.
+- **Optimized for 16GB+ VRAM**: Pre-configured defaults (such as 8-bit KV cache quantization `q8_0`, tuned batch sizes, and single-model concurrency limits) maximize model context and layer offloading within 16GB+ GPU VRAM budgets.
 - **Automated Installation & Updates**: Automatically fetches and verifies the latest pre-compiled `vulkan-x64` release binaries of `llama.cpp`.
 - **MCP & WebUI Integration**: Launches `llama serve` pre-configured with `--webui-mcp-proxy` for seamless integration with Model Context Protocol (MCP) clients and web interfaces.
 - **VRAM & API Utilities**: Includes dedicated utilities to test model throughput (`llama-ping`) and unload inactive models from GPU VRAM (`llama-free`).
@@ -24,7 +24,7 @@ This project is built around the intent to leverage **Vulkan inference** for har
 
 - **Operating System**: Linux x86_64 (AMD64)
 - **GPU**: Any graphics card with Vulkan 1.2+ support (AMD Radeon, NVIDIA GeForce/RTX, Intel Arc)
-- **VRAM**: **12 GB or more** of VRAM recommended
+- **VRAM**: **16 GB or more** of VRAM recommended
 - **Software Dependencies**: `bash`, `curl`, `jq`, `tar`, and working Vulkan drivers (`vulkan-tools` / Mesa RADV / NVIDIA proprietary drivers)
 
 ## Quick Start
