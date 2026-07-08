@@ -1,3 +1,4 @@
+{#- By Luciano Ramalho; Source: https://huggingface.co/google/gemma-4-26B-A4B-it/discussions/47 -#}
 {%- macro format_parameters(properties, required, filter_keys=false) -%}
     {%- set standard_keys = ['description', 'type', 'properties', 'required', 'nullable'] -%}
     {%- set ns = namespace(found_first=false) -%}
