@@ -2,16 +2,20 @@
 
 # Directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd $SCRIPT_DIR
+
+# Args
 PRESET_FILE="${SCRIPT_DIR}/models.ini"
 LLAMA_ARGS="
 --host 0.0.0.0
 --port 8084 
 --webui-mcp-proxy
 --tools read_file,file_glob_search,grep_search
+--log-verbosity 4
+--log-prompts-dir ./prompts
 "
 
-cd $SCRIPT_DIR
-
+# Main
 llama serve \
     --models-preset "${PRESET_FILE}" \
     --models-max 1 \
