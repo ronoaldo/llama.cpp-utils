@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # Configuration
-API_URL="http://0.0.0.0:8084/v1/chat/completions"
-MODELS_URL="http://0.0.0.0:8084/v1/models"
+API_URL="http://0.0.0.0:1234/v1/chat/completions"
+MODELS_URL="http://0.0.0.0:1234/v1/models"
 
 fetch_models() {
     local response

@@ -51,7 +51,7 @@ Launch the `llama.cpp` server with Vulkan acceleration and MCP proxy support:
 ./llama-launcher
 ```
 
-The server listens on `http://0.0.0.0:8084`.
+The server listens on `http://0.0.0.0:1234`.
 
 ### 3. Test a Model
 

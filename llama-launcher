@@ -8,16 +8,17 @@ cd $SCRIPT_DIR
 PRESET_FILE="${SCRIPT_DIR}/models.ini"
 LLAMA_ARGS="
 --host 0.0.0.0
---port 8084 
+--port 1234
 --webui-mcp-proxy
 --tools read_file,file_glob_search,grep_search
+--log-colors off
+--log-file ./logs/server-$(date +%Y%m%dT%H%M%S).log
 --log-verbosity 4
 --log-prompts-dir ./prompts
+--models-preset "${PRESET_FILE}"
+--models-max 1
 "
 
 # Main
-llama serve \
-    --models-preset "${PRESET_FILE}" \
-    --models-max 1 \
-    $LLAMA_ARGS "$@"
-
+echo "[INFO] Iniciando llama serve $LLAMA_ARGS $@ ..."
+exec -a llama llama serve $LLAMA_ARGS "$@"
