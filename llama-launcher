@@ -4,21 +4,31 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd $SCRIPT_DIR
 
-# Args
+# Helpers
 PRESET_FILE="${SCRIPT_DIR}/models.ini"
+LOG_FILE="./logs/server-$(date +%Y%m%dT%H%M%S).log"
+
+ts() { echo $(date "+%Y-%m-%d %H:%M:%S") ; }
+info() { echo "[llama-launcher | $( ts )] I $@" ; }
+
+# Args
 LLAMA_ARGS="
 --host 0.0.0.0
 --port 1234
 --webui-mcp-proxy
 --tools read_file,file_glob_search,grep_search
+--log-prefix
+--log-timestamps
 --log-colors off
---log-file ./logs/server-$(date +%Y%m%dT%H%M%S).log
+--log-file ${LOG_FILE}
 --log-verbosity 4
 --log-prompts-dir ./prompts
---models-preset "${PRESET_FILE}"
+--models-preset ${PRESET_FILE}
 --models-max 1
 "
 
 # Main
-echo "[INFO] Iniciando llama serve $LLAMA_ARGS $@ ..."
+info "Lama.cpp version: $(llama version)" | tee --append "${LOG_FILE}"
+info "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' ' | tee --append "${LOG_FILE}"
+
 exec -a llama llama serve $LLAMA_ARGS "$@"
