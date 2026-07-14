@@ -33,9 +33,50 @@ check_deps() {
     done
 }
 
+# --- Check Only Function ---
+check_only() {
+    log "Checking for updates..."
+
+    # 1. Get the latest release tag via GitHub API
+    TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r .tag_name)
+
+    if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+        error "Failed to fetch the latest tag from GitHub."
+    fi
+
+    # 2. Identify the currently installed version via the symlink
+    if [ -L "$BIN_DIR/$LINK_NAME" ]; then
+        # Get the absolute path of the symlink target
+        ACTUAL_BIN_PATH=$(readlink -f "$BIN_DIR/$LINK_NAME")
+        # The directory containing the binary should be the version directory
+        CURRENT_VERSION_DIR=$(dirname "$ACTUAL_BIN_PATH")
+        CURRENT_TAG=$(basename "$CURRENT_VERSION_DIR")
+        
+        log "Current version: $CURRENT_TAG"
+        log "Latest version: $TAG"
+
+        if [ "$CURRENT_TAG" != "$TAG" ]; then
+            log "A new version is available!"
+            # Construct the comparison URL
+            CHANGELOG_URL="https://github.com/$REPO/compare/$CURRENT_TAG...$TAG"
+            log "You can view the changelog here: $CHANGELOG_URL"
+        else
+            log "You are already using the latest version: $TAG"
+        fi
+    else
+        log "No existing installation found (no symbolic link at $BIN_DIR/$LINK_NAME)."
+        log "You might need to run the installer normally to install the first time."
+    fi
+}
+
 # --- Main Logic ---
 main() {
     check_deps
+
+    if [[ "$1" == "--check-only" ]]; then
+        check_only
+        return 0
+    fi
 
     # 1. Get the latest release tag via GitHub API
     log "Fetching the latest release tag from GitHub..."
