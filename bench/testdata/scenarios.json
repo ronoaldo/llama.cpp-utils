@@ -1,0 +1,154 @@
+[
+  {
+    "id": "scenario_01_nested_json",
+    "description": "Valida se o modelo constrói corretamente um JSON aninhado e não achata o objeto.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "advanced_search",
+          "description": "Busca documentos no banco de dados com filtros complexos.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string", "description": "O termo de busca." },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "year": { "type": "integer" },
+                  "tags": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["year", "tags"]
+              }
+            },
+            "required": ["query", "filters"]
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Busque documentos sobre 'golang' do ano de 2024 que tenham as tags 'backend' e 'api'." }
+    ],
+    "expected_tool_name": "advanced_search",
+    "expected_args_validation": {
+      "filters.year": "2024"
+    }
+  },
+  {
+    "id": "scenario_02_missing_context",
+    "description": "Valida se o modelo pede mais informações quando falta um parâmetro obrigatório ao invés de inventar (alucinar) dados.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "book_flight",
+          "description": "Reserva uma passagem de avião.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "origin": { "type": "string", "description": "Código do aeroporto de origem (ex: GRU)." },
+              "destination": { "type": "string", "description": "Código do aeroporto de destino (ex: JFK)." }
+            },
+            "required": ["origin", "destination"]
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Reserve um voo para JFK para amanhã." }
+    ],
+    "expected_tool_name": "", 
+    "expected_args_validation": {}
+  },
+  {
+    "id": "scenario_03_tool_overload",
+    "description": "Valida se o modelo escolhe a ferramenta certa quando existem várias opções semânticamente parecidas.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "search_web",
+          "description": "Busca informações na internet.",
+          "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "search_email",
+          "description": "Busca mensagens e emails recebidos.",
+          "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Encontre a receita de bolo de fubá que minha mãe me mandou ontem." }
+    ],
+    "expected_tool_name": "search_email",
+    "expected_args_validation": {}
+  },
+  {
+    "id": "scenario_04_small_talk",
+    "description": "Valida se o modelo sabe ignorar a disponibilidade de ferramentas em uma conversa casual.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Obtém o clima de uma cidade.",
+          "parameters": { "type": "object", "properties": { "location": { "type": "string" } }, "required": ["location"] }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Nossa, estou muito cansado de programar em Go hoje. A sintaxe é rigorosa." }
+    ],
+    "expected_tool_name": "",
+    "expected_args_validation": {}
+  },
+  {
+    "id": "scenario_05_long_edit",
+    "description": "Valida se o modelo não esquece o path e constrói o oldString correto após vários turnos.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "edit_file",
+          "description": "Edita um arquivo substituindo código antigo pelo novo.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "description": "Caminho absoluto do arquivo." },
+              "oldString": { "type": "string", "description": "Texto antigo exato a ser substituído, mantendo indentação." },
+              "newString": { "type": "string", "description": "Novo texto." }
+            },
+            "required": ["path", "oldString", "newString"]
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Crie um servidor HTTP em Go na pasta /opt/app/main.go" },
+      { 
+        "role": "assistant", 
+        "tool_calls": [
+          {
+            "id": "call_abc123",
+            "type": "function",
+            "function": {
+              "name": "write_file",
+              "arguments": "{\"path\": \"/opt/app/main.go\", \"content\": \"package main\\n\\nimport (\\n\\t\\\"fmt\\\"\\n\\t\\\"net/http\\\"\\n)\\n\\nfunc main() {\\n\\thttp.HandleFunc(\\\"/\\\", func(w http.ResponseWriter, r *http.Request) {\\n\\t\\tfmt.Fprint(w, \\\"Hello\\\")\\n\\t})\\n\\tfmt.Println(\\\"Servidor rodando na porta :8080\\\")\\n\\thttp.ListenAndServe(\\\":8080\\\", nil)\\n}\\n\"}"
+            }
+          }
+        ] 
+      },
+      { "role": "tool", "tool_call_id": "call_abc123", "name": "write_file", "content": "Sucesso" },
+      { "role": "user", "content": "Maravilha. Agora quero que edite e troque a porta no ListenAndServe de :8080 para :9090." }
+    ],
+    "expected_tool_name": "edit_file",
+    "expected_args_validation": {
+      "path": "/opt/app/main.go",
+      "oldString_must_contain": "ListenAndServe(\":8080\""
+    }
+  }
+]

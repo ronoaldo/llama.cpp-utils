@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+source "$SCRIPT_DIR/utils.sh"
+
 # Configuration
 API_URL="http://0.0.0.0:1234/v1/chat/completions"
 MODELS_URL="http://0.0.0.0:1234/v1/models"
@@ -8,19 +11,21 @@ fetch_models() {
     local response
     response=$(curl -s "$MODELS_URL")
     if [ -z "$response" ]; then
-        echo "Error: Could not fetch models from server."
-        exit 1
+        die "Could not fetch models from server. Is it running?"
     fi
 
-    echo "Available models:"
+    log_step "Available models:"
     echo "$response" | jq -r '.data[] | "\(.id) \(.status.value) \(.status.args | join(" "))"' | while read -r id loaded args; do
-        local status=""
-        [ "$loaded" = "loaded" ] && status=" (loaded)"
         local context="N/A"
         if [ -n "$args" ]; then
             context=$(echo "$args" | grep -oP '(?<=\--ctx-size )\K\d+' | head -1)
         fi
-        echo "- $id$status (Context: ${context:-N/A})"
+        
+        if [ "$loaded" = "loaded" ]; then
+            echo -e "  ${COLOR_GREEN}${COLOR_BOLD}★ ${id} (LOADED)${COLOR_RESET} - Context: ${context:-N/A}"
+        else
+            echo -e "  - ${COLOR_BLUE}${id}${COLOR_RESET} (Context: ${context:-N/A})"
+        fi
     done
 }
 
@@ -45,14 +50,12 @@ handle_response() {
     local prompt=$2
 
     if [ -z "$response" ]; then
-        echo -e "\nError: Empty response from server."
-        exit 1
+        die "Empty response from server."
     fi
 
     local error_msg=$(echo "$response" | jq -r '.error.message // empty')
     if [ -n "$error_msg" ]; then
-        echo -e "\nServer Error: $error_msg"
-        exit 1
+        die "Server Error: $error_msg"
     fi
 
     local content=$(echo "$response" | jq -r '.choices[0].message.content')
@@ -61,11 +64,11 @@ handle_response() {
     local pred_n=$(echo "$response" | jq -r '.timings.predicted_n')
     local pred_tps=$(echo "$response" | jq -r '.timings.predicted_per_second')
 
-    echo -ne "User: ${prompt}\n  AI: "
+    # Note: Using echo here to avoid timestamp prefixes if any, keeping it raw
     echo "$content"
     echo
-    echo "Prompt: $prompt_n tokens @ $prompt_tps tokens/s"
-    echo "Generated: $pred_n tokens @ $pred_tps tokens/s"
+    log_info "Prompt: $prompt_n tokens @ $prompt_tps tokens/s"
+    log_info "Generated: $pred_n tokens @ $pred_tps tokens/s"
 }
 
 main() {
@@ -79,7 +82,9 @@ main() {
 
     local payload=$(get_payload "$model_alias" "$prompt")
     
-    echo -ne "User: ${prompt}\n  AI: "
+    echo -e "${COLOR_YELLOW}User: ${prompt}${COLOR_RESET}"
+    echo -ne "${COLOR_GREEN}  AI: ${COLOR_RESET}"
+    
     local response=$(call_api "$payload")
 
     handle_response "$response" "$prompt"

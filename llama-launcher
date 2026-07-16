@@ -2,14 +2,13 @@
 
 # Directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd $SCRIPT_DIR
+cd "$SCRIPT_DIR"
+
+source "$SCRIPT_DIR/utils.sh"
 
 # Helpers
 PRESET_FILE="${SCRIPT_DIR}/models.ini"
 LOG_FILE="./logs/server-$(date +%Y%m%dT%H%M%S).log"
-
-ts() { echo $(date "+%Y-%m-%d %H:%M:%S") ; }
-info() { echo "[llama-launcher | $( ts )] I $@" ; }
 
 # Args
 LLAMA_ARGS="
@@ -20,7 +19,6 @@ LLAMA_ARGS="
 --log-prefix
 --log-timestamps
 --log-colors off
---log-file ${LOG_FILE}
 --log-verbosity 4
 --log-prompts-dir ./prompts
 --models-preset ${PRESET_FILE}
@@ -28,7 +26,17 @@ LLAMA_ARGS="
 "
 
 # Main
-info "Lama.cpp version: $(llama version)" | tee --append "${LOG_FILE}"
-info "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' ' | tee --append "${LOG_FILE}"
+mkdir -p ./logs
+log_step "Starting llama.cpp server"
+log_info "Lama.cpp version: $(llama version | head -n 1)"
+log_info "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' '
+echo ""
 
-exec -a llama llama serve $LLAMA_ARGS "$@"
+# Grava um cabeçalho sem cores no log
+echo "Lama.cpp version: $(llama version | head -n 1)" > "${LOG_FILE}"
+echo "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' ' >> "${LOG_FILE}"
+echo -e "\n---" >> "${LOG_FILE}"
+
+# Removemos o --log-file do LLAMA_ARGS pois ele dava truncate no arquivo.
+# Ao invés disso, usamos o clássico tee -a para jogar na tela e anexar no arquivo.
+llama serve $LLAMA_ARGS "$@" 2>&1 | tee -a "${LOG_FILE}"

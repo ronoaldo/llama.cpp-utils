@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+source "$SCRIPT_DIR/utils.sh"
+
 # Default server URL
 LLAMA_SERVER_URL="http://localhost:1234"
 
 # Fetch loaded models and send unload requests
-curl -fsS "$LLAMA_SERVER_URL/v1/models" | jq -r '.data[] | select(.status.value == "loaded") | .id' | while IFS= read -r model_id; do
-    echo -n "Unloading: $model_id: "
-    curl -fsS -X POST "$LLAMA_SERVER_URL/models/unload" \
-        -H "Content-Type: application/json" \
-        -d "{\"model\": \"$model_id\"}"
-	echo
-done
-echo "All models unloaded."
+log_step "Descarregando modelos do VRAM..."
+models=$(curl -fsS "$LLAMA_SERVER_URL/v1/models" | jq -r '.data[] | select(.status.value == "loaded") | .id')
 
+if [ -z "$models" ]; then
+    log_info "Nenhum modelo carregado na memória no momento."
+else
+    for model_id in $models; do
+        log_info "Descarregando: $model_id"
+        curl -fsS -X POST "$LLAMA_SERVER_URL/models/unload" \
+            -H "Content-Type: application/json" \
+            -d "{\"model\": \"$model_id\"}" > /dev/null
+    done
+    log_success "Todos os modelos foram descarregados."
+fi

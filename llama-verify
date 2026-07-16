@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+# Permite que o script continue executando mesmo se algo falhar
+set -u
+
+# Prompt de teste de código em Go
+PROMPT='Escreva um programa completo em Go que implemente um servidor HTTP na porta 8080. O servidor deve ter uma rota "/reverse" que aceita um POST com um JSON no formato {"text": "sua string"} e retorne um JSON com o texto invertido no formato {"reversed": "gnirts aus"}. Utilize APENAS a standard library (net/http, encoding/json). Retorne APENAS o código fonte dentro de um bloco de código markdown começando com ```go'
+
+# Importa a biblioteca de utilitários no mesmo diretório
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+source "$SCRIPT_DIR/utils.sh"
+
+echo -e "${COLOR_CYAN}=== LLAMA VERIFY (One-Shot Compilation Benchmark) ===${COLOR_RESET}"
+
+# Extrair todos os aliases configurados no models.ini automaticamente
+if [ $# -gt 0 ]; then
+    ALIASES="$@"
+else
+    # Extrair todos os aliases configurados no models.ini automaticamente
+    ALIASES=$(grep -E '^\s*alias\s*=' models.ini | awk -F'=' '{print $2}' | tr -d ' ')
+fi
+
+if [ -z "$ALIASES" ]; then
+    die "Nenhum alias encontrado no models.ini"
+fi
+
+echo "Modelos a serem validados:"
+for a in $ALIASES; do echo " - $a"; done
+echo
+
+for alias in $ALIASES; do
+    echo -e "\n=================================================="
+    echo "Testando: $alias"
+    echo "=================================================="
+    
+    # 1. Descarregar o modelo anterior para ter VRAM livre
+    ./llama-free > /dev/null
+    
+    # 2. Chamar o llama-ping (Redirecionando a saída inteira para um temp)
+    log_step "Gerando código (isso pode levar alguns segundos)..."
+    OUTPUT_FILE=$(mktemp)
+    
+    if ! ./llama-ping "$alias" "$PROMPT" > "$OUTPUT_FILE" 2>&1; then
+        log_err "Falha ao executar llama-ping. O servidor está rodando?"
+        rm "$OUTPUT_FILE"
+        exit 1
+    fi
+    
+    # Mostrar estatisticas do llama-ping (as linhas de tokens gerados)
+    grep -E 'tokens/s' "$OUTPUT_FILE" || true
+    
+    # 3. Extrair apenas o código Go
+    GO_FILE=$(mktemp --suffix=.go)
+    # Extrai tudo entre ```go e o próximo ``` (ignorando espaços ou prefixos antes)
+    awk '/```go/{flag=1; next} /```/{if(flag){flag=0; exit}} flag' "$OUTPUT_FILE" > "$GO_FILE"
+    
+    # Verificar se extraiu algo
+    if [ ! -s "$GO_FILE" ]; then
+        log_err "O modelo não retornou o bloco \`\`\`go esperado."
+        log_warn "Saída bruta parcial:"
+        tail -n 10 "$OUTPUT_FILE"
+        rm "$OUTPUT_FILE" "$GO_FILE"
+        continue
+    fi
+    
+    # 4. Testar compilação do código isolado
+    log_step "Testando go build..."
+    TMP_DIR=$(mktemp -d)
+    mv "$GO_FILE" "$TMP_DIR/main.go"
+    
+    if (cd "$TMP_DIR" && go build -o main main.go > build_output.txt 2>&1); then
+        log_success "SUCESSO: O código compilou perfeitamente (one-shot)!"
+    else
+        log_err "FALHA: Erro de compilação:"
+        cat "$TMP_DIR/build_output.txt"
+    fi
+    
+    rm -rf "$TMP_DIR" "$OUTPUT_FILE"
+done
+
+# Limpar memória no final
+echo -e "\nFinalizando..."
+./llama-free > /dev/null
+echo "Verificação concluída!"
