@@ -10,6 +10,11 @@ PROMPT='Escreva um programa completo em Go que implemente um servidor HTTP na po
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 
+# Setup for results
+RESULTS_FILE="$SCRIPT_DIR/logs/verify_results.tmp"
+mkdir -p "$(dirname "$RESULTS_FILE")"
+> "$RESULTS_FILE"
+
 echo -e "${COLOR_CYAN}=== LLAMA VERIFY (One-Shot Compilation Benchmark) ===${COLOR_RESET}"
 
 # Extrair todos os aliases configurados no models.ini automaticamente
@@ -43,7 +48,8 @@ for alias in $ALIASES; do
     if ! ./llama-ping "$alias" "$PROMPT" > "$OUTPUT_FILE" 2>&1; then
         log_err "Falha ao executar llama-ping. O servidor está rodando?"
         rm "$OUTPUT_FILE"
-        exit 1
+        echo "$alias|N/A|N/A|ERROR" >> "$RESULTS_FILE"
+        continue
     fi
     
     # Mostrar estatisticas do llama-ping (as linhas de tokens gerados)
@@ -60,6 +66,7 @@ for alias in $ALIASES; do
         log_warn "Saída bruta parcial:"
         tail -n 10 "$OUTPUT_FILE"
         rm "$OUTPUT_FILE" "$GO_FILE"
+        echo "$alias|N/A|N/A|NO_CODE" >> "$RESULTS_FILE"
         continue
     fi
     
@@ -68,17 +75,60 @@ for alias in $ALIASES; do
     TMP_DIR=$(mktemp -d)
     mv "$GO_FILE" "$TMP_DIR/main.go"
     
+    BUILD_STATUS="FAIL"
     if (cd "$TMP_DIR" && go build -o main main.go > build_output.txt 2>&1); then
         log_success "SUCESSO: O código compilou perfeitamente (one-shot)!"
+        BUILD_STATUS="OK"
     else
         log_err "FALHA: Erro de compilação:"
         cat "$TMP_DIR/build_output.txt"
     fi
     
+    # Extract metrics from OUTPUT_FILE before removing it
+    PREFILL=$(grep "Prompt:" "$OUTPUT_FILE" | sed -E 's/.*@ ([0-9.]+) tokens\/s.*/\1/' | head -1)
+    GEN=$(grep "Generated:" "$OUTPUT_FILE" | sed -E 's/.*@ ([0-9.]+) tokens\/s.*/\1/' | head -1)
+    
+    # Default values if not found
+    PREFILL=${PREFILL:-"N/A"}
+    GEN=${GEN:-"N/A"}
+
+    # Save to results file
+    echo "$alias|$PREFILL|$GEN|$BUILD_STATUS" >> "$RESULTS_FILE"
+    
     rm -rf "$TMP_DIR" "$OUTPUT_FILE"
 done
+
+# Helper to format numbers for the summary table
+format_num() {
+    local val="$1"
+    if [[ "$val" =~ ^[0-9.]+$ ]]; then
+        printf "%.2f" "$val"
+    else
+        echo "$val"
+    fi
+}
+
+# Final Summary Table
+printf "\n${COLOR_CYAN}${COLOR_BOLD}%-20s | %-15s | %-15s | %-10s${COLOR_RESET}\n" "Model" "Prefill (t/s)" "Gen (t/s)" "Code OK"
+echo "------------------------------------------------------------------------------------"
+
+if [ -s "$RESULTS_FILE" ]; then
+    while IFS='|' read -r name pf gen ok; do
+        pf_fmt=$(format_num "$pf")
+        gen_fmt=$(format_num "$gen")
+        
+        if [ "$ok" = "OK" ]; then
+            printf "%-20s | %-15s | %-15s | ${COLOR_GREEN}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
+        else
+            printf "%-20s | %-15s | %-15s | ${COLOR_RED}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
+        fi
+    done < "$RESULTS_FILE"
+else
+    echo "No data to display."
+fi
 
 # Limpar memória no final
 echo -e "\nFinalizando..."
 ./llama-free > /dev/null
+rm -f "$RESULTS_FILE"
 echo "Verificação concluída!"
