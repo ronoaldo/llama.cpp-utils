@@ -98,18 +98,20 @@ for alias in $ALIASES; do
     rm -rf "$TMP_DIR" "$OUTPUT_FILE"
 done
 
-# Helper to format numbers for the summary table
+# Helper to format numbers for the summary table.
+# LC_NUMERIC=C garante o ponto como separador decimal: sob pt_BR o printf
+# rejeita "144.29" como número inválido.
 format_num() {
     local val="$1"
     if [[ "$val" =~ ^[0-9.]+$ ]]; then
-        printf "%.2f" "$val"
+        LC_NUMERIC=C printf "%.2f" "$val"
     else
         echo "$val"
     fi
 }
 
 # Final Summary Table
-printf "\n${COLOR_CYAN}${COLOR_BOLD}%-20s | %-15s | %-15s | %-10s${COLOR_RESET}\n" "Model" "Prefill (t/s)" "Gen (t/s)" "Code OK"
+printf "\n${COLOR_CYAN}${COLOR_BOLD}%-42s | %-15s | %-15s | %-10s${COLOR_RESET}\n" "Model" "Prefill (t/s)" "Gen (t/s)" "Code OK"
 echo "------------------------------------------------------------------------------------"
 
 if [ -s "$RESULTS_FILE" ]; then
@@ -118,9 +120,9 @@ if [ -s "$RESULTS_FILE" ]; then
         gen_fmt=$(format_num "$gen")
         
         if [ "$ok" = "OK" ]; then
-            printf "%-20s | %-15s | %-15s | ${COLOR_GREEN}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
+            printf "%-42s | %-15s | %-15s | ${COLOR_GREEN}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
         else
-            printf "%-20s | %-15s | %-15s | ${COLOR_RED}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
+            printf "%-42s | %-15s | %-15s | ${COLOR_RED}%-10s${COLOR_RESET}\n" "$name" "$pf_fmt" "$gen_fmt" "$ok"
         fi
     done < "$RESULTS_FILE"
 else

@@ -60,9 +60,12 @@ handle_response() {
 
     local content=$(echo "$response" | jq -r '.choices[0].message.content')
     local prompt_n=$(echo "$response" | jq -r '.timings.prompt_n')
-    local prompt_tps=$(echo "$response" | jq -r '.timings.prompt_per_second')
+    # Trunca as métricas em 2 casas decimais já na origem (ponto como separador
+    # decimal), evitando que consumidores como o llama-verify tenham que
+    # reformatar valores longos sob locales com vírgula decimal.
+    local prompt_tps=$(echo "$response" | jq -r '((.timings.prompt_per_second // 0) * 100 | floor / 100) | tostring')
     local pred_n=$(echo "$response" | jq -r '.timings.predicted_n')
-    local pred_tps=$(echo "$response" | jq -r '.timings.predicted_per_second')
+    local pred_tps=$(echo "$response" | jq -r '((.timings.predicted_per_second // 0) * 100 | floor / 100) | tostring')
 
     # Note: Using echo here to avoid timestamp prefixes if any, keeping it raw
     echo "$content"
