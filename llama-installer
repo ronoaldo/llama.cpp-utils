@@ -21,15 +21,255 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# --- Help Function ---
+show_help() {
+    cat << 'EOF'
+Usage: ./llama-installer [OPTIONS|COMMAND] [TAG_OR_VERSION]
+
+Automates the installation, update, and management of llama.cpp (Vulkan x64 for Linux AMD64).
+
+Commands & Options:
+  [TAG_OR_VERSION]           Install/update to specified tag or latest if omitted.
+                             Examples: v0.3.0, 0.3.0, b10684, 10684, latest
+  --list, -l, list           List all locally installed versions and show active.
+  --use, -u, use <VERSION>   Switch active version to a locally installed version.
+  --remove, -r, remove <VER> Remove a locally installed version.
+  --check-only, -c           Check for available updates without installing.
+  --help, -h                 Show this help message.
+
+EOF
+}
+
+# --- List Installed Versions ---
+list_installed() {
+    log_step "Installed llama.cpp versions in $INSTALL_BASE:"
+
+    if [ ! -d "$INSTALL_BASE" ]; then
+        log_warn "No installations found (directory $INSTALL_BASE does not exist)."
+        return 0
+    fi
+
+    local current_bin_target=""
+    if [ -L "$BIN_DIR/$LINK_NAME" ]; then
+        current_bin_target=$(readlink -f "$BIN_DIR/$LINK_NAME")
+    fi
+
+    local found=0
+    for entry in "$INSTALL_BASE"/*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        local name=$(basename "$entry")
+        local is_active=0
+
+        local entry_target
+        entry_target=$(readlink -f "$entry")
+        
+        if [ -n "$current_bin_target" ] && [ -n "$entry_target" ]; then
+            if [ "$entry_target" == "$(dirname "$current_bin_target")" ]; then
+                is_active=1
+            fi
+        fi
+
+        local details=""
+        if [ -L "$entry" ]; then
+            local link_dest
+            link_dest=$(readlink "$entry")
+            details=" -> $link_dest"
+        fi
+
+        if [ "$is_active" -eq 1 ]; then
+            echo -e "  ${COLOR_GREEN}${COLOR_BOLD}* $name$details (active)${COLOR_RESET}"
+        else
+            echo -e "    $name$details"
+        fi
+        found=$((found + 1))
+    done
+
+    if [ "$found" -eq 0 ]; then
+        log_info "No versions found in $INSTALL_BASE."
+    fi
+}
+
+# --- Use Installed Version ---
+use_version() {
+    local req="$1"
+    if [[ -z "$req" ]]; then
+        die "Please specify the version to use (e.g. ./llama-installer --use v0.3.0 or b10210)."
+    fi
+
+    # Normalize tag (e.g., 0.3.0 -> v0.3.0, 10210 -> b10210)
+    local target_tag="$req"
+    if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+        target_tag="v$req"
+    elif [[ "$req" =~ ^[0-9]+$ ]]; then
+        target_tag="b$req"
+    fi
+
+    local target_dir="$INSTALL_BASE/$target_tag"
+    if [ ! -e "$target_dir" ] && [ ! -L "$target_dir" ]; then
+        if [ -e "$INSTALL_BASE/$req" ] || [ -L "$INSTALL_BASE/$req" ]; then
+            target_tag="$req"
+            target_dir="$INSTALL_BASE/$target_tag"
+        else
+            die "Version '$req' ($target_tag) is not installed in $INSTALL_BASE.\nRun './llama-installer $req' to download and install it."
+        fi
+    fi
+
+    local target_real_dir
+    target_real_dir=$(readlink -f "$target_dir")
+    local actual_bin
+    actual_bin=$(find "$target_real_dir" -maxdepth 1 \( -name "llama" -o -name "llama-cli" \) | head -n 1)
+    if [[ -z "$actual_bin" ]]; then
+        die "Could not find llama or llama-cli binary in $target_dir"
+    fi
+
+    mkdir -p "$BIN_DIR"
+    ln -sf "$actual_bin" "$BIN_DIR/$LINK_NAME"
+    log_success "Switched to version $target_tag: $BIN_DIR/$LINK_NAME -> $actual_bin"
+
+    log_step "Verifying active version..."
+    local ver_out
+    ver_out=$("$BIN_DIR/$LINK_NAME" --version 2>&1 || true)
+    log_info "Active binary: $(echo "$ver_out" | head -n 1)"
+}
+
+# --- Remove Installed Version ---
+remove_version() {
+    local req="$1"
+    if [[ -z "$req" ]]; then
+        die "Please specify the version to remove (e.g. ./llama-installer --remove b10034)."
+    fi
+
+    # Normalize tag
+    local target_tag="$req"
+    if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+        target_tag="v$req"
+    elif [[ "$req" =~ ^[0-9]+$ ]]; then
+        target_tag="b$req"
+    fi
+
+    local target_path="$INSTALL_BASE/$target_tag"
+    if [ ! -e "$target_path" ] && [ ! -L "$target_path" ]; then
+        if [ -e "$INSTALL_BASE/$req" ] || [ -L "$INSTALL_BASE/$req" ]; then
+            target_tag="$req"
+            target_path="$INSTALL_BASE/$target_tag"
+        else
+            die "Version '$req' ($target_tag) not found in $INSTALL_BASE."
+        fi
+    fi
+
+    # Check if currently active
+    if [ -L "$BIN_DIR/$LINK_NAME" ]; then
+        local current_target
+        current_target=$(readlink -f "$BIN_DIR/$LINK_NAME")
+        local remove_target
+        remove_target=$(readlink -f "$target_path")
+        if [[ -n "$remove_target" && "$(dirname "$current_target")" == "$remove_target" ]]; then
+            log_warn "Version $target_tag is currently active. Removing active symlink $BIN_DIR/$LINK_NAME."
+            rm -f "$BIN_DIR/$LINK_NAME"
+        fi
+    fi
+
+    # If it is a symlink, just remove the symlink
+    if [ -L "$target_path" ]; then
+        rm -f "$target_path"
+        log_success "Removed version alias symlink: $target_path"
+        return 0
+    fi
+
+    # If it is a directory, remove referencing symlinks first
+    for entry in "$INSTALL_BASE"/*; do
+        if [ -L "$entry" ]; then
+            local dest
+            dest=$(readlink "$entry")
+            if [[ "$dest" == "$target_tag" || "$(readlink -f "$entry")" == "$(readlink -f "$target_path")" ]]; then
+                rm -f "$entry"
+                log_info "Removed referencing symlink: $(basename "$entry") -> $dest"
+            fi
+        fi
+    done
+
+    # Remove directory
+    rm -rf "$target_path"
+    log_success "Removed version $target_tag ($target_path)"
+}
+
+# --- Resolve Release & Download URL ---
+resolve_release() {
+    local req="$1"
+
+    if [[ -z "$req" || "$req" == "latest" ]]; then
+        log_step "Fetching the latest release info from GitHub ($REPO)..."
+        RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+        TAG=$(echo "$RELEASE_JSON" | jq -r .tag_name)
+    else
+        # Normalize input tag (e.g., 0.3.0 -> v0.3.0, 10684 -> b10684)
+        if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+            TAG="v$req"
+        elif [[ "$req" =~ ^[0-9]+$ ]]; then
+            TAG="b$req"
+        else
+            TAG="$req"
+        fi
+        log_step "Fetching release info for tag '$TAG' from GitHub ($REPO)..."
+        RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+    fi
+
+    if [[ -z "$TAG" || "$TAG" == "null" || $(echo "$RELEASE_JSON" | jq -r .message) == "Not Found" ]]; then
+        die "Failed to fetch release info for '${req:-latest}' from GitHub."
+    fi
+
+    BUILD_TAG=""
+    DOWNLOAD_URL=""
+
+    # 1. Check if release contains vulkan-x64 binary asset directly (build releases like bXXXX)
+    DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | contains("vulkan-x64.tar.gz")) | .browser_download_url' | head -n 1)
+
+    # 2. If not found, check if release has a nightly-tag pointer (semver releases like vX.Y.Z)
+    if [[ -z "$DOWNLOAD_URL" || "$DOWNLOAD_URL" == "null" ]]; then
+        local nightly_url
+        nightly_url=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test("nightly.*tag")) | .browser_download_url' | head -n 1)
+
+        if [[ -n "$nightly_url" && "$nightly_url" != "null" ]]; then
+            BUILD_TAG=$(curl -sL "$nightly_url" | tr -d '[:space:]')
+        fi
+
+        # Fallback: inspect release body for build tag link (e.g. releases/tag/bXXXXX)
+        if [[ -z "$BUILD_TAG" || "$BUILD_TAG" == "null" ]]; then
+            BUILD_TAG=$(echo "$RELEASE_JSON" | jq -r .body | grep -oP 'releases/tag/\K(b[0-9]+)' | head -n 1)
+        fi
+
+        if [[ -n "$BUILD_TAG" && "$BUILD_TAG" != "null" ]]; then
+            log_info "Release $TAG references build: $BUILD_TAG"
+            local build_json
+            build_json=$(curl -s "https://api.github.com/repos/$REPO/releases/tags/$BUILD_TAG")
+            DOWNLOAD_URL=$(echo "$build_json" | jq -r '.assets[]? | select(.name | contains("vulkan-x64.tar.gz")) | .browser_download_url' | head -n 1)
+        fi
+    fi
+
+    if [[ -z "$DOWNLOAD_URL" || "$DOWNLOAD_URL" == "null" ]]; then
+        die "Could not find the download link for the Vulkan x64 binary for tag '$TAG' (build: ${BUILD_TAG:-none})."
+    fi
+}
+
 # --- Check Only Function ---
 check_only() {
     log_step "Checking for updates..."
 
     # 1. Get the latest release tag via GitHub API
-    TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r .tag_name)
+    local latest_json
+    latest_json=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+    local latest_tag
+    latest_tag=$(echo "$latest_json" | jq -r .tag_name)
 
-    if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+    if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
         die "Failed to fetch the latest tag from GitHub."
+    fi
+
+    local latest_build=""
+    local nightly_url
+    nightly_url=$(echo "$latest_json" | jq -r '.assets[]? | select(.name | test("nightly.*tag")) | .browser_download_url' | head -n 1)
+    if [[ -n "$nightly_url" && "$nightly_url" != "null" ]]; then
+        latest_build=$(curl -sL "$nightly_url" | tr -d '[:space:]')
     fi
 
     # 2. Identify the currently installed version via the symlink
@@ -39,17 +279,18 @@ check_only() {
         CURRENT_TAG=$(basename "$CURRENT_VERSION_DIR")
         
         log_info "Current version: $CURRENT_TAG"
-        log_info "Latest version: $TAG"
+        log_info "Latest version:  $latest_tag${latest_build:+ (build $latest_build)}"
 
-        if [ "$CURRENT_TAG" != "$TAG" ]; then
-            log_success "A new version is available!"
-            CHANGELOG_URL="https://github.com/$REPO/compare/$CURRENT_TAG...$TAG"
-            log_info "You can view the changelog here: $CHANGELOG_URL"
+        if [[ "$CURRENT_TAG" == "$latest_tag" || ( -n "$latest_build" && "$CURRENT_TAG" == "$latest_build" ) ]]; then
+            log_success "You are already using the latest version: $latest_tag"
         else
-            log_success "You are already using the latest version: $TAG"
+            log_success "A new version is available: $latest_tag"
+            CHANGELOG_URL="https://github.com/$REPO/compare/$CURRENT_TAG...$latest_tag"
+            log_info "You can view the changelog here: $CHANGELOG_URL"
         fi
     else
         log_warn "No existing installation found (no symbolic link at $BIN_DIR/$LINK_NAME)."
+        log_info "Latest version available: $latest_tag${latest_build:+ (build $latest_build)}"
         log_info "Run the installer normally to install."
     fi
 }
@@ -60,36 +301,72 @@ main() {
     check_dep "jq"
     check_dep "tar"
 
-    if [[ "$1" == "--check-only" ]]; then
-        check_only
-        return 0
+    local requested_tag=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h|help)
+                show_help
+                return 0
+                ;;
+            --list|-l|list)
+                list_installed
+                return 0
+                ;;
+            --use|-u|use)
+                shift
+                use_version "$1"
+                return 0
+                ;;
+            --remove|-r|--delete|remove|delete)
+                shift
+                remove_version "$1"
+                return 0
+                ;;
+            --check-only|-c)
+                check_only
+                return 0
+                ;;
+            *)
+                requested_tag="$1"
+                shift
+                ;;
+        esac
+    done
+
+    resolve_release "$requested_tag"
+
+    local install_dir_name="${BUILD_TAG:-$TAG}"
+    log_info "Target release: $TAG"
+    if [[ -n "$BUILD_TAG" && "$BUILD_TAG" != "$TAG" ]]; then
+        log_info "Resolved build directory: $BUILD_TAG"
     fi
 
-    log_step "Fetching the latest release tag from GitHub..."
-    TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r .tag_name)
-    
-    if [[ -z "$TAG" || "$TAG" == "null" ]]; then
-        die "Failed to fetch the latest tag from GitHub."
+    TARGET_DIR="$INSTALL_BASE/$install_dir_name"
+
+    # If previous version was stored directly in semver folder or TARGET_DIR was a symlink, handle cleanup/migration
+    if [[ -n "$BUILD_TAG" && "$BUILD_TAG" != "$TAG" ]]; then
+        if [ -L "$TARGET_DIR" ]; then
+            rm -f "$TARGET_DIR"
+        fi
+        if [ -d "$INSTALL_BASE/$TAG" ] && [ ! -L "$INSTALL_BASE/$TAG" ]; then
+            if [ ! -d "$TARGET_DIR" ]; then
+                mv "$INSTALL_BASE/$TAG" "$TARGET_DIR"
+            else
+                rm -rf "$INSTALL_BASE/$TAG"
+            fi
+        fi
     fi
-    log_info "Latest version identified: $TAG"
 
-    TARGET_DIR="$INSTALL_BASE/$TAG"
-
-    if [ -d "$TARGET_DIR" ]; then
-        log_success "Version $TAG is already installed in $TARGET_DIR. Skipping download."
+    if [[ -f "$TARGET_DIR/llama" || -f "$TARGET_DIR/llama-cli" ]]; then
+        log_success "Build $install_dir_name is already installed in $TARGET_DIR. Skipping download."
     else
-        log_info "Installing version $TAG in $TARGET_DIR..."
+        log_info "Installing build $install_dir_name in $TARGET_DIR..."
         mkdir -p "$TARGET_DIR"
 
         log_step "Downloading Vulkan x64 binary..."
-        URL=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | contains("vulkan-x64.tar.gz")) | .browser_download_url')
-        
-        if [[ -z "$URL" || "$URL" == "null" ]]; then
-            die "Could not find the download link for the Vulkan x64 binary."
-        fi
-
-        log_info "Downloading from: $URL"
-        if ! curl -L "$URL" -o "$TEMP_DIR/llama.tar.gz"; then
+        log_info "Downloading from: $DOWNLOAD_URL"
+        if ! curl -L "$DOWNLOAD_URL" -o "$TEMP_DIR/llama.tar.gz"; then
             die "The download failed."
         fi
 
@@ -99,51 +376,68 @@ main() {
             die "Failed to extract the downloaded file."
         fi
         
-        BIN_PATH=$(find "$TEMP_DIR/extracted" -name "llama-cli" | head -n 1)
+        BIN_PATH=$(find "$TEMP_DIR/extracted" -maxdepth 2 \( -name "llama-cli" -o -name "llama" \) | head -n 1)
         if [ -z "$BIN_PATH" ]; then
-            die "Could not find the llama-cli binary within the downloaded package."
+            die "Could not find llama or llama-cli binary within the downloaded package."
         fi
         BIN_DIR_IN_TAR=$(dirname "$BIN_PATH")
         
         cp -r "$BIN_DIR_IN_TAR/." "$TARGET_DIR/"
     fi
 
+    # If release tag differs from build tag, create symlink vX.Y.Z -> bXXXXX
+    if [[ -n "$BUILD_TAG" && "$BUILD_TAG" != "$TAG" ]]; then
+        ln -sfn "$BUILD_TAG" "$INSTALL_BASE/$TAG"
+        log_info "Created version alias symlink: $INSTALL_BASE/$TAG -> $BUILD_TAG"
+    fi
+
     log_step "Configuring symbolic link..."
     mkdir -p "$BIN_DIR"
     
-    ACTUAL_BIN=$(find "$TARGET_DIR" -maxdepth 1 -name "llama" | head -n 1)
+    ACTUAL_BIN=$(find "$TARGET_DIR" -maxdepth 1 \( -name "llama" -o -name "llama-cli" \) | head -n 1)
     
     if [ -z "$ACTUAL_BIN" ]; then
-        die "Could not find the llama-cli binary in $TARGET_DIR"
+        die "Could not find llama or llama-cli binary in $TARGET_DIR"
     fi
 
     ln -sf "$ACTUAL_BIN" "$BIN_DIR/$LINK_NAME"
     log_success "Symbolic link created: $BIN_DIR/$LINK_NAME -> $ACTUAL_BIN"
 
     if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        log_warn "Adding $BIN_DIR to PATH in ~/.bashrc"
-        if [ -f "$HOME/.bashrc" ]; then
-            if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.bashrc"; then
+        log_warn "$BIN_DIR is not in your current PATH."
+        local already_configured=0
+        for rc_file in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.zshrc"; do
+            if [ -f "$rc_file" ] && grep -qE '\.local/bin' "$rc_file"; then
+                already_configured=1
+                log_info "$BIN_DIR is already configured in $rc_file. Run 'source $rc_file' or restart your terminal."
+                break
+            fi
+        done
+
+        if [ "$already_configured" -eq 0 ]; then
+            log_warn "Adding $BIN_DIR to PATH in ~/.bashrc"
+            if [ -f "$HOME/.bashrc" ]; then
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
                 log_warn "Please run 'source ~/.bashrc' or restart your terminal to update the PATH."
             else
-                log_info "$BIN_DIR is already in ~/.bashrc."
+                log_warn "$HOME/.bashrc not found. The PATH was not updated permanently."
             fi
-        else
-            log_warn "$HOME/.bashrc not found. The PATH was not updated permanently."
         fi
     else
         log_info "$BIN_DIR is already in the PATH."
     fi
 
     log_step "Verifying installation..."
-    VERSION_OUTPUT=$("$BIN_DIR/$LINK_NAME" --version 2>&1)
+    VERSION_OUTPUT=$("$BIN_DIR/$LINK_NAME" --version 2>&1 || true)
     CLEAN_TAG=$(echo "$TAG" | sed 's/^[bv]//')
+    CLEAN_BUILD=$(echo "${BUILD_TAG:-}" | sed 's/^[bv]//')
 
-    if echo "$VERSION_OUTPUT" | grep -q "$CLEAN_TAG"; then
+    if echo "$VERSION_OUTPUT" | grep -q "$CLEAN_TAG" || { [[ -n "$CLEAN_BUILD" ]] && echo "$VERSION_OUTPUT" | grep -q "$CLEAN_BUILD"; }; then
         log_success "llama-installer completed successfully!"
+        log_info "Installed: $TAG${BUILD_TAG:+ (build $BUILD_TAG)}"
+        log_info "Binary output: $(echo "$VERSION_OUTPUT" | head -n 1)"
     else
-        die "Verification failed. Detected: [$VERSION_OUTPUT]. Expected: [$CLEAN_TAG] (Original tag: $TAG)."
+        die "Verification failed. Detected: [$VERSION_OUTPUT]. Expected: [$CLEAN_TAG] or [${CLEAN_BUILD:-none}]."
     fi
 }
 

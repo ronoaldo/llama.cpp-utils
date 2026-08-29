@@ -14,11 +14,11 @@ This project is built around the intent to leverage **Vulkan inference** for har
 
 ## Components
 
-- [`llama-installer`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-installer): Automates the installation and updating of `llama.cpp` binaries using official pre-compiled `vulkan-x64` builds from GitHub.
-- [`llama-launcher`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-launcher): Launches the `llama serve` daemon using model presets configured in `models.ini`, enforcing a single loaded model (`--models-max 1`) to preserve VRAM.
-- [`models.ini`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/models.ini): The central configuration file for model presets, defining generation parameters, GPU layer offloading, Flash Attention, and memory parameters.
-- [`llama-ping`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-ping): CLI utility to query the OpenAI-compatible `/v1/chat/completions` API and output response metrics (tokens/second).
-- [`llama-free`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/llama-free): Utility script to query active models and issue unload requests to free VRAM.
+- [`llama-installer`](llama-installer): Automates the installation and updating of `llama.cpp` binaries using official pre-compiled `vulkan-x64` builds from GitHub.
+- [`llama-launcher`](llama-launcher): Launches the `llama serve` daemon using model presets configured in `models.ini`, enforcing a single loaded model (`--models-max 1`) to preserve VRAM.
+- [`models.ini`](models.ini): The central configuration file for model presets, defining generation parameters, GPU layer offloading, Flash Attention, and memory parameters.
+- [`llama-ping`](llama-ping): CLI utility to query the OpenAI-compatible `/v1/chat/completions` API and output response metrics (tokens/second).
+- [`llama-free`](llama-free): Utility script to query active models and issue unload requests to free VRAM.
 
 ## Hardware & System Requirements
 
@@ -29,12 +29,32 @@ This project is built around the intent to leverage **Vulkan inference** for har
 
 ## Quick Start
 
-### 1. Installation
+### 1. Installation & Version Management
 
 Install or update `llama.cpp` using the automated Vulkan installer:
 
 ```bash
 ./llama-installer
+```
+
+You can also install specific releases (semver like `v0.3.0` or builds like `b10684`), list local versions, switch the active version, or remove old builds:
+
+```bash
+# Install a specific version (semver or build tag)
+./llama-installer v0.3.0
+./llama-installer b10684
+
+# List locally installed versions (and show active)
+./llama-installer --list
+
+# Switch active version without re-downloading
+./llama-installer --use b10210
+
+# Remove an old installed build
+./llama-installer --remove b10034
+
+# Check for updates without installing
+./llama-installer --check-only
 ```
 
 After installation, update your shell environment if `~/.local/bin` was newly added to your `PATH`:
@@ -71,7 +91,7 @@ To free GPU memory without stopping the server daemon:
 
 ## Configuration
 
-Model aliases, Hugging Face repositories, offload layers, and VRAM-saving options are configured in [`models.ini`](file:///media/ronoaldo/data/workspace/ai/llama-launcher/models.ini).
+Model aliases, Hugging Face repositories, offload layers, and VRAM-saving options are configured in [`models.ini`](models.ini).
 
 Global defaults (`[*]`) set baseline VRAM-friendly values:
 - `cache-type-k = q8_0` & `cache-type-v = q8_0` (quantized KV cache for memory savings)
