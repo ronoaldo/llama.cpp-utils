@@ -29,12 +29,15 @@ Usage: ./llama-installer [OPTIONS|COMMAND] [TAG_OR_VERSION]
 Automates the installation, update, and management of llama.cpp (Vulkan x64 for Linux AMD64).
 
 Commands & Options:
-  [TAG_OR_VERSION]           Install/update to specified tag or latest if omitted.
-                             Examples: v0.3.0, 0.3.0, b10684, 10684, latest
+  [TAG_OR_VERSION]           Install/update to specified tag or latest build if omitted.
+                             Examples: latest (newest build), stable (latest stable tag),
+                                       v0.3.0, 0.3.0, b10719, 10719
   --list, -l, list           List all locally installed versions and show active.
   --use, -u, use <VERSION>   Switch active version to a locally installed version.
+                             Examples: latest, stable, v0.3.0, b10719
   --remove, -r, remove <VER> Remove a locally installed version.
-  --check-only, -c           Check for available updates without installing.
+  --check-only, -c [CHANNEL] Check for available updates without installing.
+                             Channel can be 'latest', 'stable', or omitted (checks both).
   --help, -h                 Show this help message.
 
 EOF
@@ -93,12 +96,24 @@ list_installed() {
 use_version() {
     local req="$1"
     if [[ -z "$req" ]]; then
-        die "Please specify the version to use (e.g. ./llama-installer --use v0.3.0 or b10210)."
+        die "Please specify the version to use (e.g. ./llama-installer --use latest, stable, v0.3.0, or b10719)."
     fi
 
-    # Normalize tag (e.g., 0.3.0 -> v0.3.0, 10210 -> b10210)
+    # Normalize tag (e.g., 0.3.0 -> v0.3.0, 10210 -> b10210, latest -> newest bXXXX, stable -> newest vX.Y.Z)
     local target_tag="$req"
-    if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+    if [[ "$req" == "latest" || "$req" == "build" || "$req" == "latest-build" ]]; then
+        target_tag=$(find "$INSTALL_BASE" -maxdepth 1 -name "b[0-9]*" -exec basename {} \; 2>/dev/null | sort -V | tail -n 1)
+        if [[ -z "$target_tag" ]]; then
+            die "No build version (bXXXX) found installed in $INSTALL_BASE."
+        fi
+        log_info "Selecting latest installed build: $target_tag"
+    elif [[ "$req" == "stable" || "$req" == "latest-stable" || "$req" == "release" ]]; then
+        target_tag=$(find "$INSTALL_BASE" -maxdepth 1 -name "v[0-9]*" -exec basename {} \; 2>/dev/null | sort -V | tail -n 1)
+        if [[ -z "$target_tag" ]]; then
+            die "No stable release (vX.Y.Z) found installed in $INSTALL_BASE."
+        fi
+        log_info "Selecting latest installed stable release: $target_tag"
+    elif [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
         target_tag="v$req"
     elif [[ "$req" =~ ^[0-9]+$ ]]; then
         target_tag="b$req"
@@ -141,7 +156,7 @@ remove_version() {
 
     # Normalize tag
     local target_tag="$req"
-    if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+    if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
         target_tag="v$req"
     elif [[ "$req" =~ ^[0-9]+$ ]]; then
         target_tag="b$req"
@@ -196,14 +211,24 @@ remove_version() {
 # --- Resolve Release & Download URL ---
 resolve_release() {
     local req="$1"
+    TAG=""
+    BUILD_TAG=""
+    DOWNLOAD_URL=""
+    local RELEASE_JSON=""
 
-    if [[ -z "$req" || "$req" == "latest" ]]; then
-        log_step "Fetching the latest release info from GitHub ($REPO)..."
+    if [[ -z "$req" || "$req" == "latest" || "$req" == "build" || "$req" == "latest-build" ]]; then
+        log_step "Fetching latest build info from GitHub ($REPO)..."
+        local releases_list
+        releases_list=$(curl -s "https://api.github.com/repos/$REPO/releases?per_page=10")
+        RELEASE_JSON=$(echo "$releases_list" | jq -c '[.[] | select(.tag_name | test("^b[0-9]+"))][0] // .[0]')
+        TAG=$(echo "$RELEASE_JSON" | jq -r .tag_name)
+    elif [[ "$req" == "stable" || "$req" == "latest-stable" || "$req" == "release" ]]; then
+        log_step "Fetching latest stable release info from GitHub ($REPO)..."
         RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
         TAG=$(echo "$RELEASE_JSON" | jq -r .tag_name)
     else
         # Normalize input tag (e.g., 0.3.0 -> v0.3.0, 10684 -> b10684)
-        if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]]; then
+        if [[ "$req" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             TAG="v$req"
         elif [[ "$req" =~ ^[0-9]+$ ]]; then
             TAG="b$req"
@@ -217,9 +242,6 @@ resolve_release() {
     if [[ -z "$TAG" || "$TAG" == "null" || $(echo "$RELEASE_JSON" | jq -r .message) == "Not Found" ]]; then
         die "Failed to fetch release info for '${req:-latest}' from GitHub."
     fi
-
-    BUILD_TAG=""
-    DOWNLOAD_URL=""
 
     # 1. Check if release contains vulkan-x64 binary asset directly (build releases like bXXXX)
     DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | contains("vulkan-x64.tar.gz")) | .browser_download_url' | head -n 1)
@@ -253,45 +275,123 @@ resolve_release() {
 
 # --- Check Only Function ---
 check_only() {
+    local target_channel="${1:-}"
     log_step "Checking for updates..."
 
-    # 1. Get the latest release tag via GitHub API
-    local latest_json
-    latest_json=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
-    local latest_tag
-    latest_tag=$(echo "$latest_json" | jq -r .tag_name)
+    # 1. Get latest build
+    local releases_list
+    releases_list=$(curl -s "https://api.github.com/repos/$REPO/releases?per_page=10")
+    local latest_build_json
+    latest_build_json=$(echo "$releases_list" | jq -c '[.[] | select(.tag_name | test("^b[0-9]+"))][0] // .[0]')
+    local latest_build
+    latest_build=$(echo "$latest_build_json" | jq -r .tag_name)
 
-    if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
-        die "Failed to fetch the latest tag from GitHub."
-    fi
+    # 2. Get latest stable release
+    local latest_stable_json
+    latest_stable_json=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+    local latest_stable
+    latest_stable=$(echo "$latest_stable_json" | jq -r .tag_name)
 
-    local latest_build=""
+    local latest_stable_build=""
     local nightly_url
-    nightly_url=$(echo "$latest_json" | jq -r '.assets[]? | select(.name | test("nightly.*tag")) | .browser_download_url' | head -n 1)
+    nightly_url=$(echo "$latest_stable_json" | jq -r '.assets[]? | select(.name | test("nightly.*tag")) | .browser_download_url' | head -n 1)
     if [[ -n "$nightly_url" && "$nightly_url" != "null" ]]; then
-        latest_build=$(curl -sL "$nightly_url" | tr -d '[:space:]')
+        latest_stable_build=$(curl -sL "$nightly_url" | tr -d '[:space:]')
+    fi
+    if [[ -z "$latest_stable_build" || "$latest_stable_build" == "null" ]]; then
+        latest_stable_build=$(echo "$latest_stable_json" | jq -r .body | grep -oP 'releases/tag/\K(b[0-9]+)' | head -n 1)
     fi
 
-    # 2. Identify the currently installed version via the symlink
+    # 3. Identify currently active installation
     if [ -L "$BIN_DIR/$LINK_NAME" ]; then
-        ACTUAL_BIN_PATH=$(readlink -f "$BIN_DIR/$LINK_NAME")
-        CURRENT_VERSION_DIR=$(dirname "$ACTUAL_BIN_PATH")
-        CURRENT_TAG=$(basename "$CURRENT_VERSION_DIR")
-        
-        log_info "Current version: $CURRENT_TAG"
-        log_info "Latest version:  $latest_tag${latest_build:+ (build $latest_build)}"
+        local actual_bin_path
+        actual_bin_path=$(readlink -f "$BIN_DIR/$LINK_NAME")
+        local current_version_dir
+        current_version_dir=$(dirname "$actual_bin_path")
+        local current_build
+        current_build=$(basename "$current_version_dir")
 
-        if [[ "$CURRENT_TAG" == "$latest_tag" || ( -n "$latest_build" && "$CURRENT_TAG" == "$latest_build" ) ]]; then
-            log_success "You are already using the latest version: $latest_tag"
+        local current_alias=""
+        if [ -d "$INSTALL_BASE" ]; then
+            for entry in "$INSTALL_BASE"/*; do
+                if [ -L "$entry" ] && [ "$(readlink -f "$entry")" == "$current_version_dir" ]; then
+                    current_alias=$(basename "$entry")
+                    break
+                fi
+            done
+        fi
+
+        local active_display="$current_build"
+        if [[ -n "$current_alias" && "$current_alias" != "$current_build" ]]; then
+            active_display="$current_alias (build $current_build)"
+        fi
+
+        log_info "Active version: $active_display"
+
+        # Check by target_channel if specified
+        if [[ "$target_channel" == "stable" || "$target_channel" == "latest-stable" || "$target_channel" == "release" ]]; then
+            log_info "Target channel: Stable ($latest_stable${latest_stable_build:+ / $latest_stable_build})"
+            if [[ "$current_alias" == "$latest_stable" || "$current_build" == "$latest_stable_build" ]]; then
+                log_success "You are already using the latest stable release: $latest_stable${latest_stable_build:+ (build $latest_stable_build)}"
+            else
+                local curr_b_num="${current_build//[!0-9]/}"
+                local stable_b_num="${latest_stable_build//[!0-9]/}"
+                if [[ -n "$curr_b_num" && -n "$stable_b_num" && "$curr_b_num" -gt "$stable_b_num" ]]; then
+                    log_info "Your active build ($current_build) is newer than the latest stable release: $latest_stable (build $latest_stable_build)."
+                    log_info "To switch to stable: './llama-installer stable'"
+                else
+                    log_success "A new stable release is available: $latest_stable"
+                    local changelog_tag="${current_alias:-$current_build}"
+                    log_info "Changelog: https://github.com/$REPO/compare/$changelog_tag...$latest_stable"
+                    log_info "Run './llama-installer stable' to install."
+                fi
+            fi
+        elif [[ "$target_channel" == "latest" || "$target_channel" == "build" || "$target_channel" == "latest-build" ]]; then
+            log_info "Target channel: Latest Build ($latest_build)"
+            if [[ "$current_build" == "$latest_build" ]]; then
+                log_success "You are already using the latest build: $latest_build"
+            else
+                log_success "A newer build is available: $latest_build (current: $current_build)"
+                log_info "Changelog: https://github.com/$REPO/compare/$current_build...$latest_build"
+                log_info "Run './llama-installer' or './llama-installer latest' to update."
+            fi
         else
-            log_success "A new version is available: $latest_tag"
-            CHANGELOG_URL="https://github.com/$REPO/compare/$CURRENT_TAG...$latest_tag"
-            log_info "You can view the changelog here: $CHANGELOG_URL"
+            # Default check (checks both build and stable channels)
+            log_info "Latest build:   $latest_build"
+            log_info "Latest stable:  $latest_stable${latest_stable_build:+ (build $latest_stable_build)}"
+
+            if [[ -n "$current_alias" && "$current_alias" =~ ^v[0-9]+ ]]; then
+                # Active version was installed as a stable tag
+                if [[ "$current_alias" == "$latest_stable" || "$current_build" == "$latest_stable_build" ]]; then
+                    log_success "You are using the latest stable release: $latest_stable${latest_stable_build:+ (build $latest_stable_build)}"
+                    if [[ "$current_build" != "$latest_build" ]]; then
+                        log_info "A newer bleeding-edge build is also available: $latest_build (run './llama-installer latest' to switch to it)."
+                    fi
+                else
+                    log_success "A new stable release is available: $latest_stable"
+                    log_info "Changelog: https://github.com/$REPO/compare/$current_alias...$latest_stable"
+                    log_info "Run './llama-installer stable' to update."
+                fi
+            else
+                # Active version is a build tag (bXXXX)
+                local curr_b_num="${current_build//[!0-9]/}"
+                local latest_b_num="${latest_build//[!0-9]/}"
+                if [[ "$current_build" == "$latest_build" ]]; then
+                    log_success "You are already using the latest build: $latest_build"
+                elif [[ -n "$curr_b_num" && -n "$latest_b_num" && "$curr_b_num" -lt "$latest_b_num" ]]; then
+                    log_success "A newer build is available: $latest_build (current: $current_build)"
+                    log_info "Changelog: https://github.com/$REPO/compare/$current_build...$latest_build"
+                    log_info "Run './llama-installer' or './llama-installer latest' to update."
+                else
+                    log_success "Your current build is: $current_build"
+                fi
+            fi
         fi
     else
         log_warn "No existing installation found (no symbolic link at $BIN_DIR/$LINK_NAME)."
-        log_info "Latest version available: $latest_tag${latest_build:+ (build $latest_build)}"
-        log_info "Run the installer normally to install."
+        log_info "Latest build available:  $latest_build"
+        log_info "Latest stable available: $latest_stable${latest_stable_build:+ (build $latest_stable_build)}"
+        log_info "Run './llama-installer' (for latest build) or './llama-installer stable' (for stable) to install."
     fi
 }
 
@@ -323,9 +423,15 @@ main() {
                 remove_version "$1"
                 return 0
                 ;;
-            --check-only|-c)
-                check_only
+            --check-only|-c|check-only|check)
+                shift
+                check_only "${1:-}"
                 return 0
+                ;;
+            install)
+                shift
+                requested_tag="${1:-latest}"
+                shift || true
                 ;;
             *)
                 requested_tag="$1"

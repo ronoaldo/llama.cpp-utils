@@ -40,21 +40,30 @@ Install or update `llama.cpp` using the automated Vulkan installer:
 You can also install specific releases (semver like `v0.3.0` or builds like `b10684`), list local versions, switch the active version, or remove old builds:
 
 ```bash
+# Install or update to latest build (default) or latest stable release
+./llama-installer
+./llama-installer latest
+./llama-installer stable
+
 # Install a specific version (semver or build tag)
 ./llama-installer v0.3.0
-./llama-installer b10684
+./llama-installer b10719
 
 # List locally installed versions (and show active)
 ./llama-installer --list
 
 # Switch active version without re-downloading
 ./llama-installer --use b10210
+./llama-installer --use latest
+./llama-installer --use stable
 
 # Remove an old installed build
 ./llama-installer --remove b10034
 
-# Check for updates without installing
+# Check for updates without installing (checks both channels, or filter by channel)
 ./llama-installer --check-only
+./llama-installer --check-only stable
+./llama-installer --check-only latest
 ```
 
 After installation, update your shell environment if `~/.local/bin` was newly added to your `PATH`:
