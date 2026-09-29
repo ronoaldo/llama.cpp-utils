@@ -22,7 +22,7 @@ LLAMA_ARGS="
 --log-verbosity 4
 --log-prompts-dir ./prompts
 --models-preset ${PRESET_FILE}
---models-max 1
+--models-max 2
 "
 
 # Main
