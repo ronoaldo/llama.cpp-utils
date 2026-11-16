@@ -8,35 +8,41 @@ source "$SCRIPT_DIR/utils.sh"
 
 # Helpers
 PRESET_FILE="${SCRIPT_DIR}/models.ini"
+LOCAL_OVERRIDES="${SCRIPT_DIR}/local-overrides.sh"
 LOG_FILE="./logs/server-$(date +%Y%m%dT%H%M%S).log"
 
 # Args
-LLAMA_ARGS="
---host 0.0.0.0
---port 1234
---webui-mcp-proxy
---tools read_file,file_glob_search,grep_search
---log-prefix
---log-timestamps
---log-colors off
---log-verbosity 4
---log-prompts-dir ./prompts
---models-preset ${PRESET_FILE}
---models-max 2
-"
+LLAMA_ARGS=(
+    --host 127.0.0.1
+    --port 1234
+    --webui-mcp-proxy
+    --tools read_file,file_glob_search,grep_search
+    --log-prefix
+    --log-timestamps
+    --log-colors off
+    --log-verbosity 4
+    --log-prompts-dir ./prompts
+    --models-preset "${PRESET_FILE}"
+    --models-max 2
+)
 
 # Main
 mkdir -p ./logs
 log_step "Starting llama.cpp server"
+if [[ -f "${LOCAL_OVERRIDES}" ]]; then
+    log_info "Loading local overrides from ${LOCAL_OVERRIDES}"
+    # shellcheck source=/dev/null
+    source "${LOCAL_OVERRIDES}"
+fi
 log_info "Lama.cpp version: $(llama version | head -n 1)"
-log_info "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' '
+log_info "Starting with: 'llama serve ${LLAMA_ARGS[*]} $*' ..."
 echo ""
 
 # Grava um cabeçalho sem cores no log
 echo "Lama.cpp version: $(llama version | head -n 1)" > "${LOG_FILE}"
-echo "Starting with: 'llama serve $LLAMA_ARGS $@' ..." | tr '\n' ' ' >> "${LOG_FILE}"
+echo "Starting with: 'llama serve ${LLAMA_ARGS[*]} $*' ..." >> "${LOG_FILE}"
 echo -e "\n---" >> "${LOG_FILE}"
 
 # Removemos o --log-file do LLAMA_ARGS pois ele dava truncate no arquivo.
 # Ao invés disso, usamos o clássico tee -a para jogar na tela e anexar no arquivo.
-llama serve $LLAMA_ARGS "$@" 2>&1 | tee -a "${LOG_FILE}"
+llama serve "${LLAMA_ARGS[@]}" "$@" 2>&1 | tee -a "${LOG_FILE}"

@@ -1,3 +1,4 @@
 /prompts
 *.swp
 /logs
+/local-overrides.sh
